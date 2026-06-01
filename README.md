@@ -63,9 +63,8 @@ Generated directories such as `build/`, `data/`, `output/`, and
 - `make`
 
 This project uses POSIX sockets: `sys/socket.h`, `netinet/in.h`, `arpa/inet.h`,
-and `unistd.h`. Native Windows MinGW/MSVC will usually show errors for those
-headers unless you run the project through WSL or port the networking code to
-Winsock.
+and `unistd.h`. Native Windows MinGW/MSVC usually show errors for those
+headers unless we run the project through WSL.
 
 ## Build
 
