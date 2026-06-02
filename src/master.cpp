@@ -23,16 +23,16 @@
 
 namespace fs = std::filesystem;
 
-// ────────────────────────────────────────────────────────────────────────────
-// Master state (protected by g_mtx)
-// ────────────────────────────────────────────────────────────────────────────
+// Master state
 
 static std::mutex              g_mtx;
 static std::vector<MapTask>    g_map_tasks;
 static std::vector<ReduceTask> g_reduce_tasks;
 static std::atomic<bool>       g_all_done{false};
+static int                     g_expected_workers = 1;
+static int                     g_connected_workers = 0;
+static bool                    g_scheduling_started = false;
 
-// Timeout (seconds) before a task is considered failed and re-queued.
 static constexpr int TASK_TIMEOUT_SEC = 30;
 
 // Task scheduling helpers
@@ -139,6 +139,16 @@ static void handle_worker(int worker_fd, const std::string& worker_addr)
 {
     log("MASTER  Worker connected from " + worker_addr);
 
+    {
+        std::lock_guard<std::mutex> lk(g_mtx);
+        ++g_connected_workers;
+        if (!g_scheduling_started &&
+            g_connected_workers >= g_expected_workers) {
+            g_scheduling_started = true;
+            log("MASTER  Expected workers reached; starting scheduling");
+        }
+    }
+
     // Each interaction: worker sends a request, master responds with a task.
     // Loop until the job is done or the socket closes.
     while (!g_all_done.load()) {
@@ -155,7 +165,6 @@ static void handle_worker(int worker_fd, const std::string& worker_addr)
 
             // Handle completion notifications first.
             if (req.rfind("TASK_DONE", 0) == 0) {
-                // Format: "TASK_DONE <id> <MAP|REDUCE>\nEND\n"
                 std::istringstream iss(req);
                 std::string token, stype;
                 int id = -1;
@@ -182,6 +191,19 @@ static void handle_worker(int worker_fd, const std::string& worker_addr)
 
         // 2. Assign the next available task.
         std::unique_lock<std::mutex> lk(g_mtx);
+
+        if (!g_scheduling_started) {
+            int connected = g_connected_workers;
+            int expected = g_expected_workers;
+            lk.unlock();
+
+            log("MASTER  Waiting for workers "
+                + std::to_string(connected) + "/"
+                + std::to_string(expected));
+            if (!send_all(worker_fd, "TASK_TYPE WAIT\nEND\n")) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            continue;
+        }
 
         // Check global completion.
         if (all_maps_done() && all_reduces_done()) {
@@ -220,6 +242,11 @@ static void handle_worker(int worker_fd, const std::string& worker_addr)
 
     // Final DONE in case we exited the loop due to g_all_done.
     if (g_all_done.load()) send_done(worker_fd);
+
+    {
+        std::lock_guard<std::mutex> lk(g_mtx);
+        if (g_connected_workers > 0) --g_connected_workers;
+    }
 
     ::close(worker_fd);
     log("MASTER  Closed connection to " + worker_addr);
@@ -290,7 +317,8 @@ int main(int argc, char* argv[])
 {
     if (argc < 5) {
         std::cerr << "Usage: " << argv[0]
-                  << " <pattern> <input_dir> <output_dir> <inter_dir> [r_count]\n";
+                  << " <pattern> <input_dir> <output_dir> <inter_dir> [r_count]"
+                  << " [--expected-workers N]\n";
         return 1;
     }
 
@@ -298,7 +326,24 @@ int main(int argc, char* argv[])
     spec.pattern    = argv[1];
     spec.output_dir = argv[3];
     spec.inter_dir  = argv[4];
-    spec.r_count    = (argc >= 6) ? std::stoi(argv[5]) : 2;
+    spec.r_count    = 2;
+
+    for (int i = 5; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "--expected-workers") {
+            if (i + 1 >= argc) {
+                std::cerr << "--expected-workers requires a number\n";
+                return 1;
+            }
+            g_expected_workers = std::stoi(argv[++i]);
+            if (g_expected_workers < 1) {
+                std::cerr << "--expected-workers must be at least 1\n";
+                return 1;
+            }
+        } else {
+            spec.r_count = std::stoi(arg);
+        }
+    }
 
     // Gather input files from input_dir.
     const std::string input_dir = argv[2];
@@ -320,7 +365,8 @@ int main(int argc, char* argv[])
 
     log("MASTER  Starting  pattern='" + spec.pattern + "'"
         + "  M=" + std::to_string(spec.input_files.size())
-        + "  R=" + std::to_string(spec.r_count));
+        + "  R=" + std::to_string(spec.r_count)
+        + "  expected_workers=" + std::to_string(g_expected_workers));
 
     init_tasks(spec);
 

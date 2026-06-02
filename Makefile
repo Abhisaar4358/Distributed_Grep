@@ -33,7 +33,7 @@ all: $(MASTER_BIN) $(WORKER_BIN) $(GENERATE_BIN)
 	@echo ""
 	@echo "╔══════════════════════════════════════════╗"
 	@echo "║  Build successful!                       ║"
-	@echo "║  Binaries in: $(BINDIR)/               ║"
+	@echo "║  Binaries in: $(BINDIR)/                 ║"
 	@echo "╚══════════════════════════════════════════╝"
 
 # Directory creation 
@@ -89,18 +89,18 @@ clean:
 .PHONY: run_demo
 run_demo: all
 	@echo ""
-	@echo "━━━ Step 1: Generate data ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Step 1: Generate data "
 	mkdir -p $(DATA_DIR) $(OUT_DIR) $(INTER_DIR)
 	$(GENERATE_BIN) $(DATA_DIR) 10 5000 $(PATTERN)
 
 	@echo ""
-	@echo "━━━ Step 2: Start Master ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-	$(MASTER_BIN) $(PATTERN) $(DATA_DIR) $(OUT_DIR) $(INTER_DIR) $(R_COUNT) &
+	@echo " Step 2: Start Master "
+	$(MASTER_BIN) $(PATTERN) $(DATA_DIR) $(OUT_DIR) $(INTER_DIR) $(R_COUNT) --expected-workers 3 &
 
 	@sleep 1
 
 	@echo ""
-	@echo "━━━ Step 3: Start 3 Workers ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Step 3: Start 3 Workers "
 	$(WORKER_BIN) 127.0.0.1 &
 	$(WORKER_BIN) 127.0.0.1 &
 	$(WORKER_BIN) 127.0.0.1 &
@@ -109,14 +109,14 @@ run_demo: all
 	@wait
 
 	@echo ""
-	@echo "━━━ Step 4: Verify output ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Step 4: Verify output "
 	@echo "Lines containing '$(PATTERN)' in output:"
 	@cat $(OUT_DIR)/output-*.txt 2>/dev/null | grep -c "$(PATTERN)" || true
 	@echo ""
 	@echo "Sample matched lines:"
 	@cat $(OUT_DIR)/output-*.txt 2>/dev/null | grep "$(PATTERN)" | head -10 || true
 	@echo ""
-	@echo "━━━ Demo complete ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Demo complete "
 
 # Help 
 .PHONY: help
