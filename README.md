@@ -122,8 +122,18 @@ Start the master in one terminal:
 Arguments:
 
 ```text
-master <pattern> <input_dir> <output_dir> <intermediate_dir> [reduce_count]
+master <pattern> <input_dir> <output_dir> <intermediate_dir> [reduce_count] [--expected-workers N]
 ```
+
+If you plan to start several workers manually, use `--expected-workers` so the
+first worker does not begin consuming tasks before the others connect:
+
+```bash
+./build/bin/master XQZ data output intermediate 3 --expected-workers 3
+```
+
+The master will send `WAIT` responses until three workers are connected, then it
+starts assigning map and reduce tasks normally.
 
 Start workers in other terminals:
 
@@ -141,8 +151,8 @@ make run_demo
 ```
 
 The demo builds the project, generates input data, starts one master and three
-workers in the background, waits for the job to finish, and prints a small
-verification summary.
+workers in the background, waits for all three workers before assigning tasks,
+then prints a small verification summary.
 
 For the cleanest demo output, run:
 
@@ -254,13 +264,12 @@ a production-grade fault-tolerance layer yet. In particular:
   partial output;
 - stale task completions are not fully guarded by worker identity.
 
-Those are good next improvements if you want to make the system more robust.
-
 ## Notes
 
 - Data generation is random by default. Re-running `generate_data` creates new
   sentences and new pattern positions.
-- Fast workers may complete more tasks than slower workers. The scheduler gives
-  work to whichever worker asks first.
+- Fast workers may complete more tasks than slower workers. Use
+  `--expected-workers N` when you want the master to wait for a group of workers
+  before starting the job.
 - New workers can join while the master is still running, as long as there is
   work left to assign.
